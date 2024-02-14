@@ -1,0 +1,262 @@
+---
+title: "APM466A1"
+output: pdf_document
+date: "2024-01-31"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include=FALSE}
+install.packages("jrvFinance")
+install.packages("lubridate")
+library(jrvFinance)
+library(lubridate)
+library("astsa")
+library(readxl)
+library(tidyverse) 
+library(gridExtra)
+library(datasets)
+library(dplyr)
+```
+
+```{r}
+bonds <- read_excel("bonddata.xlsx")
+```
+
+## 4(a)
+
+```{r}
+# Extract coupon rates, bond maturity dates, selected dates
+coupon <- as.numeric(bonds$Coupon)
+maturityday <- bonds$'Maturity Date'
+excel_date <- c("2024-1-8", "2024-1-9", "2024-1-10", "2024-1-11", "2024-1-12", "2024-1-15", "2024-1-16", "2024-1-17", "2024-1-18", "2024-1-19")
+
+# Extract bond close prices into a matrix
+close_price_matrix <- matrix(c(
+  bonds$'45299', bonds$'45300', bonds$'45301', bonds$'45302', bonds$'45303', bonds$'45306', bonds$'45307', bonds$'45308',
+  bonds$'45309', bonds$'45310'), nrow = 10, ncol = 10, byrow = TRUE)
+
+# Calculate time to maturity
+years_to_maturity <- matrix(nrow = 10, ncol = 10, byrow = TRUE)
+for (i in 1:10) {
+  for (j in 1:10) {
+    years_to_maturity[i, j] <- time_length(interval(excel_date[i], maturityday[j]), "year")
+  }
+}
+
+# Initialize matrices
+matrix_ytm <- matrix(NA, nrow = 10, ncol = 10)
+fraction_of_years <- matrix(nrow = 10, ncol = 10)
+
+# Calculate yield to maturity and fraction of years
+for (j in 1:10) {
+  close_prices <- close_price_matrix[, j]
+  for (i in 1:10) {
+    matrix_ytm[i, j] <- bond.yield(
+      settle = excel_date[i],
+      mature = maturityday[j],
+      coupon = coupon[j],
+      freq = 2,
+      close_prices[i],
+      convention = c("30/360", "ACT/ACT", "ACT/360", "30/360E"),
+      comp.freq = 2,
+      redemption_value = 100
+    )
+    fraction_of_years[i, j] <- yearFraction(excel_date[i], maturityday[j], freq = 2, convention = c("30/360", "ACT/ACT", "ACT/360", "30/360E"))
+  }
+}
+
+# Set up the plot with a white background and box lines
+par(bg = "white", bty = "l")
+
+# Plotting with monochrome colors
+years <- c(0, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5)
+plot(years, matrix_ytm[1,], type = "l", main = '0-5 year yield curves', col = "black", 
+     xlab="Years to maturity", ylab = "YTM", lwd = 0.8, xlim = c(0, 5), ylim = range(matrix_ytm, na.rm = TRUE))
+
+# Draw box lines around the plot
+box(which = "plot", lty = "solid") 
+
+# Add a grid to the plot
+grid(nx = NULL, ny = NULL, col = "gray", lty = "solid")
+
+# Plot the lines
+for (i in 2:10) {
+  lines(years, matrix_ytm[i,], type = "l", col = "black", lwd = 0.8)
+}
+
+# Add legend
+legend("topright", legend = excel_date, col = rep("black", length(excel_date)), lwd = 0.8, cex = 0.7)
+
+```
+Linear interpolation
+```{r}
+# estimating YTM using linear interpolation
+years <- c(0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5)
+ytm_interpolation <- matrix(nrow=10, ncol=10, byrow = T)
+for (i in 1:10) {
+  for (j in 1:9) {
+    est_rate = as.numeric(matrix_ytm[i,j])+((as.numeric(matrix_ytm[i,j+1])-as.numeric(matrix_ytm[i,j]))/(time_to_maturity[i,(j+1)]-time_to_maturity[i,j]))*(years[j]-time_to_maturity[i,j])
+    ytm_interpolation[i,j]=est_rate
+  }
+}
+ytm_interpolation[,10] <- matrix_ytm[,10]
+
+# Set up the plot with a white background and box lines
+par(bg = "white", bty = "l")
+
+# Plotting the yield curve with linear interpolation
+years <- c(0, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5)
+plot(years, ytm_interpolation[1,], type = "l", main = 'Yield Curve with Linear interpolation', 
+     col = "black", xlab="Years to maturity", ylab = "YTM", lwd = 0.8, ylim = c(0.028, 0.047))
+
+# Draw box lines around the plot
+box(which = "plot", lty = "solid")
+
+# Add a grid to the plot with gray color for the lines
+grid(nx = NULL, ny = NULL, col = "gray", lty = "solid")
+
+# Plot the remaining yield curves with linear interpolation in black
+for (i in 2:10) {
+  lines(years, ytm_interpolation[i,], type = "l", col = "black", lwd = 0.8)
+}
+
+# Add legend with black color for the text and lines
+dates_legend <- c("2023-01-16", "2023-01-17", "2023-01-18", "2023-01-19", "2023-01-20", 
+                  "2023-01-23", "2023-01-24", "2023-01-25", "2023-01-26", "2023-01-27")
+legend("topright", lty = 1, legend = dates_legend, col = rep("black", length(dates_legend)), 
+       lwd = 0.8, cex = 0.7, bty = "n")
+
+
+```
+
+## 4(b)
+```{r}
+# Define the years for which you want to calculate the spot rates
+years <- c(0, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5)
+
+# Initialize a matrix to store the spot rates
+spot_rates <- matrix(nrow = length(years), ncol = ncol(matrix_ytm))
+
+# Perform linear interpolation to estimate spot rates
+for (i in 1:ncol(matrix_ytm)) {
+  for (j in 1:length(years)) {
+    # Find the two nearest maturities for linear interpolation
+    idx <- max(which(years <= years[j]))
+    if (idx == length(years)) {
+      spot_rates[j, i] <- matrix_ytm[length(years), i]
+    } else {
+      t <- (years[j] - years[idx]) / (years[idx + 1] - years[idx])
+      spot_rates[j, i] <- matrix_ytm[idx, i] + t * (matrix_ytm[idx + 1, i] - matrix_ytm[idx, i])
+    }
+  }
+}
+
+
+par(bg = "white", bty = "l")
+
+# Plot the spot curve with black color
+years <- c(0, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5)
+plot(years, spot_rates[1,], type = "l", main = '0-5 years spot curves', col = "black",
+     xlab="Years to maturity", ylab = "Spot Rate", lwd = 0.8, xlim = c(0, 5), ylim = range(spot_rates, na.rm = TRUE))
+
+# Draw box lines around the plot
+box(which = "plot", lty = "solid") 
+
+# Add a grid to the plot with gray color for the lines
+grid(nx = NULL, ny = NULL, col = "gray", lty = "solid")
+
+# Plot the remaining spot rate curves in black
+for (i in 2:nrow(spot_rates)) {
+  lines(years, spot_rates[i,], type = "l", col = "black", lwd = 0.8)
+}
+
+# Add legend with black color for the text and lines
+legend("topright", legend = excel_date, col = rep("black", length(excel_date)), lwd = 0.8, cex = 0.7)
+
+
+
+```
+
+## 4(c)
+```{r}
+# Initialize a matrix to store the forward rates
+forward_rates <- matrix(nrow = 10, ncol = 4)
+
+# Calculate forward rates for each bond
+for (j in 1:10) {
+  for (i in 1:4) {
+    # Define the function to find the root for
+    forward_function <- function(x) {
+      ((1 + spot_rates[j, 1] / 2)^2) * ((1 + x / 2)^(2 * i)) - (1 + spot_rates[j, i + 1] / 2)^(2 * (i + 1))
+    }
+    # Use uniroot to find the root of the function
+    forward_rates[j, i] <- uniroot(forward_function, c(0, 10))$root
+  }
+}
+# Set up the plot with a white background and box lines
+par(bg = "white", bty = "l")
+
+# Plotting the forward curve with black color
+years <- c(1, 2, 3, 4)
+plot(years, forward_rates[1,], type = "l", main = '1-year forward curve', col = "black",
+     xlab = "Time from 1 year", ylab = "Forward Rate", lwd = 0.8, xlim = c(1, 4), ylim = range(forward_rates, na.rm = TRUE))
+
+# Draw box lines around the plot
+box(which = "plot", lty = "solid")
+
+# Add a grid to the plot with gray color for the lines
+grid(nx = NULL, ny = NULL, col = "gray", lty = "solid")
+
+# Plot the remaining forward rate curves in black
+for (i in 2:10) {
+  lines(years, forward_rates[i,], type = "l", col = "black", lwd = 0.8)
+}
+
+# Add legend with black color for the text and lines
+dates_legend <- c("2023-01-16", "2023-01-17", "2023-01-18", "2023-01-19", "2023-01-20", 
+                  "2023-01-23", "2023-01-24", "2023-01-25", "2023-01-26", "2023-01-27")
+legend("topright", lty = 1, legend = dates_legend, col = rep("black", length(dates_legend)),
+       lwd = 0.8, cex = 0.7, bty = "n")
+
+
+```
+
+
+\newpage
+## Question 5
+
+```{r}
+log_ytm<-matrix(nrow=9,ncol=5)
+for(i in c(1:9)){
+  for(j in c(1:5)){
+    log_ytm[i,j]<-log(as.numeric(ytm_interpolation[(i+1),j])/as.numeric(ytm_interpolation[i,j]))
+  }
+}
+cov_ytm <- cov(log_ytm)
+cov_ytm
+
+log_forward <- matrix(nrow=9, ncol=4)
+for (i in 1:9) {
+  for (j in 1:4) {
+    log_forward[i,j] <- log(forward_rates[i+1, j]/forward_rates[i,j])
+  }
+}
+
+cov_foward <- cov(log_forward)
+cov_foward
+```
+
+\newpage
+## Question 6
+
+```{r}
+print(eigen(cov_ytm)$values)
+print(eigen(cov_ytm)$vectors)
+
+print(eigen(cov_foward)$values)
+print(eigen(cov_foward)$vectors)
+
+```
